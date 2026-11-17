@@ -29,6 +29,10 @@ options. That is what "twin" in the name refers to.
 to it are the tokenized prompts and per-token lookup tables the kernel reads; their layout and the reward rule are
 in [`../docs/FORMATS.md`](../docs/FORMATS.md). `tools/stores.py` reads and checks a store.
 
+`tools/build_multitask4.py` is the script that assembled the four-task stores. It is kept as a record of how they
+were made rather than as something to run: its inputs (earlier two-task stores and extracts of SciQ and
+CommonsenseQA) are not part of this repository.
+
 Licences: ARC is CC BY-SA 4.0, SciQ is CC BY-NC 3.0, CommonsenseQA is MIT. The SciQ questions make these stores
 non-commercial as a whole.
 
