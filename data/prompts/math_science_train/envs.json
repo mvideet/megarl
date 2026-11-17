@@ -1,0 +1,8 @@
+{
+ "names": [
+  "math",
+  "science"
+ ],
+ "ntasks": 2,
+ "n_per_task": 896
+}

@@ -1,0 +1,10 @@
+{
+ "n_prompts": 1792,
+ "max_len": 120,
+ "verifier_mode": 0,
+ "tasks": [
+  "math",
+  "science"
+ ],
+ "sha256": "1bf4e29e720daaa3aa56e645acfad4fb211ff561bd05567f0e59c4ae71532107"
+}

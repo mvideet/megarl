@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Making One GPU Go Brrr: Reinforcement Learning in a Single CUDA Kernel · Videet Mehta</title>
+<meta name="description" content="We put the whole reinforcement-learning loop for a language model into one persistent CUDA kernel on one H100, and raced it against PyTorch.">
+<style>
+:root {
+  --ink: #1d232f; --mute: #5b6475; --dim: #8a93a3; --line: #e4e8ef; --soft: #f6f8fb; --link: #1864ab;
+  --mrl: #1971c2; --pt: #f08c00; --tuned: #c2410c; --lrn: #7048e8;
+  --sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: #fff; color: var(--ink); font: 17px/1.72 var(--sans); }
+main { max-width: 760px; margin: 0 auto; padding: 28px 22px 80px; }
+nav.top { display: flex; justify-content: space-between; font-size: 15px; color: var(--mute); margin-bottom: 44px; }
+nav.top a { color: var(--mute); text-decoration: none; }
+nav.top a:hover { color: var(--ink); }
+.meta { color: var(--mute); font-size: 15px; margin: 0 0 10px; }
+h1 { font-size: 38px; line-height: 1.18; letter-spacing: -0.02em; margin: 0 0 14px; }
+.subtitle { font-size: 19px; color: var(--mute); margin: 0 0 18px; line-height: 1.55; }
+.author { font-size: 15px; color: var(--ink); font-weight: 600; margin: 0 0 30px; }
+.author span { color: var(--mute); font-weight: 400; }
+h2 { font-size: 26px; line-height: 1.3; letter-spacing: -0.01em; margin: 56px 0 14px; padding-top: 8px; }
+h3 { font-size: 19px; margin: 34px 0 8px; }
+p { margin: 0 0 18px; }
+a { color: var(--link); text-underline-offset: 2px; }
+strong { font-weight: 650; }
+ul, ol { margin: 0 0 18px; padding-left: 24px; }
+li { margin: 0 0 8px; }
+code { font: 0.86em var(--mono); background: var(--soft); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+.toc { border: 1px solid var(--line); border-radius: 10px; padding: 14px 20px; margin: 0 0 34px; background: #fff; }
+.toc summary { cursor: pointer; font-weight: 650; font-size: 15px; }
+.toc ol { margin: 10px 0 2px; font-size: 15px; columns: 2; column-gap: 28px; }
+.toc li { margin: 0 0 4px; break-inside: avoid; }
+.toc a { color: var(--ink); text-decoration: none; }
+.toc a:hover { color: var(--link); }
+.tldr { background: var(--soft); border: 1px solid var(--line); border-radius: 12px; padding: 6px 24px 4px; margin: 0 0 10px; }
+.tldr h2 { margin-top: 18px; font-size: 22px; }
+figure { margin: 30px 0 34px; }
+figure svg, figure img, figure .demo { display: block; width: 100%; height: auto; }
+figure img { border: 1px solid var(--line); border-radius: 8px; }
+figcaption { color: var(--mute); font-size: 14.5px; line-height: 1.55; margin-top: 12px; }
+figcaption b { color: var(--ink); }
+.callout { border-left: 4px solid var(--mrl); background: #f3f8fd; padding: 12px 18px; border-radius: 0 8px 8px 0; margin: 0 0 20px; }
+.callout p:last-child { margin-bottom: 0; }
+.nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 6px 0 26px; }
+.nums div { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.nums b { display: block; font: 700 26px/1.2 var(--mono); color: var(--mrl); }
+.nums span { font-size: 13.5px; color: var(--mute); line-height: 1.4; display: block; margin-top: 4px; }
+.demo { position: relative; aspect-ratio: 16 / 10; background: #0b0f17; border-radius: 10px; overflow: hidden; }
+.demo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; border: 0; border-radius: 0; opacity: 0.55; }
+.demo button { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font: 650 17px var(--sans); color: #fff;
+  background: var(--mrl); border: 0; border-radius: 999px; padding: 14px 26px; cursor: pointer; box-shadow: 0 6px 24px rgba(0,0,0,.35); }
+.demo button:hover { background: #1864ab; }
+.demo iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.ack { font-size: 15.5px; color: var(--mute); }
+footer { margin-top: 60px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; }
+@media (max-width: 640px) {
+  body { font-size: 16px; }
+  h1 { font-size: 30px; }
+  .toc ol { columns: 1; }
+  .nums { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<main>
+<nav class="top"><a href="#">&larr; Videet Mehta</a><a href="#">Projects</a></nav>
+
+<p class="meta">November 2026 &middot; [[READ_MIN]] min read</p>
+<h1>Making One GPU Go Brrr: Reinforcement Learning in a Single CUDA Kernel</h1>
+<p class="subtitle">How we fit the whole RL loop for a language model (writing answers, grading them, training on them and shipping new weights) into one GPU kernel that never exits, and raced it against PyTorch on the same H100.</p>
+<p class="author">Videet Mehta <span>&middot; MIT</span></p>
+
+<details class="toc" open>
+<summary>Table of contents</summary>
+<ol>
+<li><a href="#tldr">TL;DR</a></li>
+<li><a href="#goal">Goal</a></li>
+<li><a href="#rl">RL in one minute</a></li>
+<li><a href="#waste">Where the time goes</a></li>
+<li><a href="#inspiration">The inspiration</a></li>
+<li><a href="#scheduler">Scheduling 132 SMs from inside</a></li>
+<li><a href="#train">What gets trained</a></li>
+<li><a href="#staleness">RL that tolerates stale answers</a></li>
+<li><a href="#fed">Keeping four tasks fed</a></li>
+<li><a href="#race">The race</a></li>
+<li><a href="#limits">What we don't claim</a></li>
+<li><a href="#next">What's next</a></li>
+</ol>
+</details>
+
+<section class="tldr" id="tldr">
+<h2>TL;DR</h2>
+<ul>
+<li><strong>The problem:</strong> RL for language models alternates between generating answers and training on them. Standard PyTorch has the CPU launch over a million tiny GPU operations to do this, and it stops generating every time it trains.</li>
+<li><strong>The inspiration:</strong> Flapping Airplanes' demo of one GPU kernel that trains a model, serves it and plays Doom at the same time, and its open rebuild, <a href="https://github.com/Bobliuuu/open-flapping-airplanes">open-flapping-airplanes</a>. If one kernel can run three unrelated programs, it can run the two halves of RL.</li>
+<li><strong>The system, MegaRL:</strong> one launch. 264 thread blocks on the H100's 132 SMs take numbered tasks from on-GPU queues. Four generation engines and a learner run at the same time, and the engines never stop.</li>
+<li><strong>The RL change:</strong> answers may be a little stale. Each group of answers remembers which weights wrote it; the learner uses it only if it is at most 8 updates old, and a clipped importance ratio corrects for the difference. Not waiting for fresh answers makes each update {{x_lag}}&times; faster.</li>
+<li><strong>The result:</strong> Qwen2.5-0.5B-Instruct learning four multiple-choice tasks. MegaRL generates {{mr_tok_s}} tokens/s: {{x_hf}}&times; HF PyTorch and {{x_tuned}}&times; a hand-tuned PyTorch loop with CUDA graphs. It reaches 70% held-out accuracy after {{mr_70}} s of training, against {{hf_70}} s for HF PyTorch. All three end at the same accuracy within noise.</li>
+</ul>
+</section>
+
+<h2 id="goal">1. Goal</h2>
+<p>Reinforcement learning (RL) is how a language model learns from its own attempts: it answers a question, a program checks the answer, and the model is nudged toward the answers that scored well. It is also hard on hardware. The GPU spends most of its time writing answers one token at a time, and the usual training loop keeps interrupting that work to train.</p>
+<p>I wanted to see how fast a single GPU could run the <em>whole</em> online RL loop if nothing ever left the GPU: sample answers, grade them, compute the update, publish the new weights, and keep going. Then I wanted to race it against PyTorch on the same GPU, with the same model, prompts and training step, and check that the faster system actually learns as well.</p>
+<p>This post tells that story without the gory details: where the time goes in a normal loop, the project that inspired the design, how the kernel schedules its work, the small change to the RL algorithm that made it possible, and the race.</p>
+
+<h2 id="rl">2. RL in one minute</h2>
+<p>We use <strong>GRPO</strong> (Group Relative Policy Optimization), a popular recipe for training language models with RL. For each question, the model writes four answers, called a <em>group</em>. A grader gives each answer reward 1 if its final <code>Answer: X</code> is correct and it ends properly, and 0 otherwise. Each answer's <em>advantage</em> is how much better it did than the group's average, divided by the group's spread. The update then makes positive-advantage answers more likely and negative ones less likely.</p>
+<figure>
+<!--FIG group-->
+<figcaption><b>Figure 1.</b> One GRPO group (illustrative answers). Two answers are right and two are wrong, so the right ones get advantage +0.87 and the wrong ones &minus;0.87. If all four answers had scored the same, the group would carry no signal and be thrown away.</figcaption>
+</figure>
+<p>Our setup is small enough to fit on one GPU and quick to measure. The model is <strong>Qwen2.5-0.5B-Instruct</strong>, learning four multiple-choice tasks at once: generated arithmetic, ARC science questions, SciQ and CommonsenseQA. Answers are at most 64 new tokens, and each update trains on 16 groups (64 answers). Every result below is scored on 1,600 held-out questions (400 per task) that are never trained on.</p>
+<p>Two things decide how fast this goes: how quickly you can produce answers, since generation is most of the work, and how long the generator sits idle while the trainer runs.</p>
+
+<h2 id="waste">3. Where the time goes in a normal RL loop</h2>
+<p><strong>Launch overhead.</strong> A program that runs on the GPU is called a <em>kernel</em>. PyTorch runs a model as a long sequence of small kernels, each launched by the CPU. For a small model writing one token at a time, each kernel finishes in microseconds, and the GPU spends much of its time waiting for the CPU to send the next one. Our straightforward Hugging Face (HF) PyTorch loop made <strong>{{hf_launches}}</strong> launches in {{hf_s}} seconds, about {{hf_launch_rate}} per second.</p>
+<figure>
+<!--FIG launches-->
+<figcaption><b>Figure 2.</b> PyTorch issues one small kernel after another from the CPU, and every gap is idle GPU time. MegaRL is a single kernel whose blocks pack generation tasks (blue) and learner tasks (purple) back to back.</figcaption>
+</figure>
+<p><strong>Stop-and-go.</strong> The usual loop generates for a while, stops generating to train, then resumes. A hand-tuned PyTorch loop fixes most of the launch overhead: it keeps 512 answers rolling, captures decoding in a CUDA graph and uses a static KV cache. That cuts launches to {{tuned_launches}} and lifts generation to {{tuned_tok_s}} tokens/s. But it still stops generating for every update: {{tuned_stops}} times in the race, a median of {{tuned_stop_ms}} ms each, or {{tuned_stop_pct}} of the run.</p>
+<figure>
+<!--FIG timeline-->
+<figcaption><b>Figure 3.</b> The first three seconds of each run, drawn from the recorded traces. Black marks time when generation was stopped to train. MegaRL's engines (blue) never stop; its learner alternates between computing an update (dark purple) and waiting for its next batch of answers (light purple). Update counts are at the 3-second mark.</figcaption>
+</figure>
+<p>So the goal became concrete: no CPU in the loop, and a generator that never stops.</p>
+
+<h2 id="inspiration">4. The inspiration: a kernel that never exits</h2>
+<p>The idea came from a demo video by <strong>Flapping Airplanes</strong>: one GPU kernel that trains a model, serves it and plays Doom, all at the same time. Jerry Zhu (Shopify) and Arnold Xu (Magni) rebuilt it from the video, in the open, as <a href="https://github.com/Bobliuuu/open-flapping-airplanes">open-flapping-airplanes</a>. It is a <em>persistent megakernel</em>: one launch, and its blocks never exit. They pull training, serving and Doom tasks from queues in GPU memory until the run ends.</p>
+<figure>
+<img src="[[OFA]]" alt="open-flapping-airplanes live dashboard: a training-loss curve, text streaming from the model being trained, and Doom, all from one kernel launch" loading="lazy">
+<figcaption><b>Figure 4.</b> The open-flapping-airplanes dashboard: training loss, live text from the still-training model, and Doom, all from a single kernel launch. Image from the <a href="https://github.com/Bobliuuu/open-flapping-airplanes">open-flapping-airplanes</a> repository.</figcaption>
+</figure>
+<p>Watching it, the thought was simple. RL is just two programs, a generator and a trainer, that share a GPU and pass data back and forth. If one kernel can run a trainer, a server and Doom side by side, it can run the two halves of RL side by side, and the generator never has to stop. MegaRL's scheduler starts from open-flapping-airplanes' design and adds what RL needs: model versions, queues of graded answers, and rules for how stale an answer may be.</p>
+
+<h2 id="scheduler">5. Scheduling 132 SMs from inside the kernel</h2>
+<p>An H100 has 132 <em>streaming multiprocessors</em> (SMs), the GPU's independent cores. MegaRL launches exactly two blocks of 256 threads on each SM, 264 blocks in all, once. Every block then loops: grab a task, run it, report that it is done, repeat, until the run ends.</p>
+<h3>Jobs, phases and tickets</h3>
+<p>The work is organized as <em>jobs</em>: four generation engines and one learner. A job advances in <em>steps</em>. One step of an engine produces the next token for each of its 128 answers; one step of the learner is one training update. A step is a fixed list of <em>phases</em> (normalize, project to queries/keys/values, attention, MLP, and so on, layer by layer), and each phase is split into many small <em>tasks</em> that can run in parallel on different SMs.</p>
+<p>Every task gets a number, its <em>ticket</em>. A block takes the next ticket with a single atomic add, runs that task, then bumps the phase's completion counter. When a phase's counter is full, the next phase opens. Because a task only ever depends on tasks with lower tickets, whoever holds the lowest unfinished ticket can always make progress, so the scheduler cannot deadlock.</p>
+<figure>
+<!--FIG tickets-->
+<figcaption><b>Figure 5.</b> Tickets and completion counters, simplified (a real step has about 200 phases, and a phase can have hundreds of tasks). Three blocks on different SMs are working on attention tasks 7 to 9. The MLP phase opens, and ticket 10 is handed out, when all six attention tasks have reported in.</figcaption>
+</figure>
+<h3>Who runs what</h3>
+<p>Each block has a home job. The first block on every SM belongs to a generation engine, and each engine owns a contiguous range of SMs. The second block on every other SM belongs to the learner; on the rest it is another generation block. That gives {{roll_blocks}} generation blocks and {{train_blocks}} learner blocks.</p>
+<figure>
+<!--FIG smmap-->
+<figcaption><b>Figure 6.</b> The H100's 132 SMs, each drawn as two halves for its two blocks. Blues are the four generation engines; purple is the learner, which is spread evenly over the chip.</figcaption>
+</figure>
+<p>One rule keeps every block busy: <strong>a block never takes a ticket it cannot run yet.</strong> While the learner waits for a complete batch of answers, its blocks run generation tasks instead of spinning. The matrix multiplies inside the tasks use Hopper's warpgroup tensor-core instructions (<code>wgmma</code>), so each task is fast, not just well scheduled.</p>
+
+<h2 id="train">6. What gets trained, and why the replay is exact</h2>
+<p>We train <strong>all of layer 13</strong>, one of the model's 24 transformer layers: its attention and MLP weights, {{params}} parameters in all.</p>
+<p>The trained layer is used from the last prompt token onward, while the prompt itself always goes through the original weights. So each question's KV cache is computed once at setup and reused by every version of the model. While generating, the engines save the hidden state entering layer 13 for every token. The learner starts from those saved states (layers 0 to 12 never change), replays layers 13 to 23 with exactly the same arithmetic the engines used, and backpropagates from layer 23 down to 13. Because the replay matches, the learner's log-probabilities equal the generation-time ones bit for bit when the weights have not changed, so any difference it sees is real policy change, not numerical noise.</p>
+<p>Each update clips the gradient to norm 1.0, applies AdamW on full-precision master weights, and publishes a {{snap_mb}} MB bf16 snapshot of the new layer for the engines to use. In the race, an update took about {{learn_ms}} ms of computing plus about {{wait_ms}} ms of waiting for a complete batch, time the learner's blocks spent helping generate.</p>
+
+<h2 id="staleness">7. RL that tolerates stale answers</h2>
+<p>Here is the catch. By the time a group of answers is finished and graded, the learner may already have updated the model. Textbook on-policy RL insists on answers from the current weights, which means the learner waits for fresh answers and the engines wait for new weights. That is the stop-and-go loop again, just inside the kernel.</p>
+<p>MegaRL instead lets answers be a little stale, under three rules:</p>
+<ol>
+<li><strong>Pin the weights.</strong> When an engine starts a group, the group pins the newest published snapshot and writes all four answers with it. Snapshots never change once published: the learner writes new weights into a free slot (there are 12) and never overwrites a snapshot that a running group is still reading.</li>
+<li><strong>Limit the lag.</strong> When the learner takes a group, its lag is the learner's version minus the group's version. The group is trained on only if the lag is at most 8. Queued groups that go over are dropped, and groups still generating that can never come back under the limit are cancelled early.</li>
+<li><strong>Correct for the gap.</strong> Every answer stores the log-probabilities it was written with. The loss weights each token by the ratio of its probability under the current weights to its probability when it was written, and clips that ratio to [0.8, 1.2], the same clipping PPO uses, so stale answers cannot push the model too far.</li>
+</ol>
+<figure>
+<!--FIG versions-->
+<figcaption><b>Figure 7.</b> Version pinning and the lag window. Each group pins the newest weights when it starts (open circle). The learner trains on it if it is at most 8 versions behind; the bottom group waited too long and is dropped.</figcaption>
+</figure>
+<p>The payoff is large. We ran the same kernel twice on two tasks, training layer 13 with 8 groups per update: once requiring lag 0, so every update waits for fresh answers, and once allowing lag 8. Each run had its admission limit and buffers sized for its lag. Allowing lag 8 made each update <strong>{{x_lag}}&times; faster</strong>.</p>
+<figure>
+<!--FIG lag08-->
+<figcaption><b>Figure 8.</b> The same kernel with lag 0 ({{lag0_upd}} updates) and lag 8 ({{lag8_upd}} updates), two tasks, layer 13. With lag 0 the engines sit idle waiting for each update, so generation drops too.</figcaption>
+</figure>
+<p>In practice the answers are not very stale. In the race, the average trained group was {{lag_mean}} updates old, and only {{stale}} groups in the whole run went past the limit.</p>
+<figure>
+<!--FIG lag-->
+<figcaption><b>Figure 9.</b> How many updates behind each trained group was in the race run. Most groups are one to three updates old.</figcaption>
+</figure>
+
+<h2 id="fed">8. Keeping four tasks fed</h2>
+<p>With four tasks sharing one learner, a lot of bookkeeping happens on the GPU. Each group moves through a small state machine: generating, graded, then queued or dropped, then trained on or dropped as stale. Graded groups go into lock-free queues in GPU memory, one per task, and their buffers return to a shared free list when the learner is done with them.</p>
+<ul>
+<li><strong>Admission limit.</strong> An engine starts a new group for a task only while that task has fewer than 32 groups generating or queued. Producing far more answers than the learner can use would just make them stale.</li>
+<li><strong>Deficit scheduling.</strong> Both starting new groups and building each training batch favour the task that has received the least so far, counting what is trained, queued and still generating. That keeps the four tasks balanced without a fixed schedule.</li>
+<li><strong>Back-pressure.</strong> When every buffer is in use, engines wait for the learner to free one rather than overwrite data.</li>
+</ul>
+<figure>
+<!--FIG flow-->
+<figcaption><b>Figure 10.</b> What happened to every group in the race run. Most groups are thrown away because all four answers got the same reward.</figcaption>
+</figure>
+<p>The flow chart shows why generation speed matters so much: <strong>{{zerovar_pct}} of graded groups carried no learning signal</strong>, because all four answers were right (or all wrong). For every group the learner trained on, the engines wrote about five. The run's built-in audit checks the protocol (every trained group within the lag limit, no snapshot overwritten while in use, and so on) and found {{violations}} violations.</p>
+
+<h2 id="race">9. The race</h2>
+<p>Three systems, one H100 80GB, the same model, the same trained layer, the same training prompts, the same GRPO update (16 groups, learning rate 4e-5, gradient clip 1.0, lag limit 8) and the same held-out grader. Each ran for about {{race_s}} seconds of training. Setup time (loading weights, building the prompt caches) is excluded for everyone: {{mr_setup}} s for MegaRL and {{hf_setup}} s for HF PyTorch.</p>
+<div class="nums">
+<div><b>{{mr_tok_s}}</b><span>tokens/s generated by MegaRL, {{x_hf}}&times; HF PyTorch and {{x_tuned}}&times; tuned PyTorch</span></div>
+<div><b>{{mr_trained_s}}</b><span>groups trained per second, against {{tuned_trained_s}} (tuned) and {{hf_trained_s}} (HF)</span></div>
+<div><b>1</b><span>kernel launch for the whole run, against {{hf_launches}} for HF PyTorch</span></div>
+</div>
+<figure>
+<!--FIG ladder-->
+<figcaption><b>Figure 11.</b> Generation speed, kernel launches and updates completed for the three systems. MegaRL finished its {{mr_updates}} updates in {{mr_s}} s; the PyTorch loops completed {{tuned_updates}} and {{hf_updates}} in the same window.</figcaption>
+</figure>
+<p>Speed only matters if learning keeps up, so every system's weights were saved during the run and scored afterwards on the 1,600 held-out questions. All three start at {{base_acc}}.</p>
+<figure>
+<!--FIG accuracy-->
+<figcaption><b>Figure 12.</b> Held-out accuracy (mean over the four tasks) against seconds of training. MegaRL passes 70% after {{mr_70}} s; HF PyTorch needs {{hf_70}} s. The tuned loop was scored only every 25 updates; its first score, at 2.5 s, was already above 70%, so we can't say which of it and MegaRL got there first. At the end the three are within two points, which is within noise for 1,600 questions (one standard error is about 1.1 points).</figcaption>
+</figure>
+<p>Here is the race as a replay. Both sides run on the clock of their recorded traces: the PyTorch panel shows generation stopping whenever it trains, and the MegaRL panel shows tokens and updates piling up from a single launch.</p>
+<figure>
+<div class="demo" id="demo">
+<img src="[[SHOT]]" alt="The race replay at 8 seconds: PyTorch on the left, MegaRL on the right, with tokens per second, updates and a held-out accuracy chart">
+<button id="demo-play" type="button">Play the race (about 40 s)</button>
+</div>
+<figcaption><b>Figure 13.</b> The race replay, built from the recorded runs (HF PyTorch against MegaRL; the tuned loop appears on the final card). Press Play; the controls inside let you pause, seek and change speed.</figcaption>
+</figure>
+<div class="callout">
+<p><strong>The takeaway:</strong> the win is speed, not a smarter algorithm. All three systems learn to the same accuracy; MegaRL gets there sooner because it generates {{x_hf}}&times; faster than HF PyTorch and {{x_tuned}}&times; faster than a carefully tuned PyTorch loop, from one kernel launch.</p>
+</div>
+
+<h2 id="limits">10. What we don't claim</h2>
+<ul>
+<li><strong>Scale.</strong> One H100, a 0.5B-parameter model, answers of at most 64 tokens, multiple-choice tasks, and one seed per system. Bigger models, long reasoning chains and multiple GPUs are untested.</li>
+<li><strong>One trained layer.</strong> We train all of layer 13 ({{params_m}} parameters), not the whole model.</li>
+<li><strong>Accuracy is a tie.</strong> Final accuracy is within noise across the three systems; the claim is time, not a better final model.</li>
+<li><strong>Setup excluded.</strong> All rates count training time only, for every system.</li>
+<li><strong>Separate staleness experiment.</strong> The lag 0 against lag 8 comparison is a pair of two-task runs, each configured for its lag, not the race configuration.</li>
+<li><strong>Slightly off-policy.</strong> Training on answers up to 8 updates old changes the algorithm a little. The clipped ratio kept it stable here; longer runs may need a tighter limit.</li>
+</ul>
+
+<h2 id="next">11. What's next</h2>
+<p>The natural next steps are training more of the model, longer answers with free-form graders, and larger models, which raise the question of how a kernel like this spans several GPUs. The broader lesson seems general, though: when a workload is many small, dependent pieces of work, letting the GPU schedule itself, instead of being told what to do one kernel at a time, can be worth an order of magnitude.</p>
+
+<h2 id="ack">Acknowledgements</h2>
+<p class="ack">Thanks to Flapping Airplanes for the demo that started this, and to Jerry Zhu and Arnold Xu for <a href="https://github.com/Bobliuuu/open-flapping-airplanes">open-flapping-airplanes</a>, whose open persistent-kernel design MegaRL's scheduler builds on. Thanks to the Qwen team for Qwen2.5-0.5B-Instruct; to the authors of ARC, SciQ and CommonsenseQA; to the DeepSeekMath authors for GRPO; and to Hugging Face for transformers and TRL, whose GRPO implementation we checked our loss against.</p>
+
+<footer>Videet Mehta &middot; MIT &middot; November 2026</footer>
+</main>
+
+<script type="text/plain" id="demo-b64">[[DEMO]]</script>
+<script>
+(function () {
+  var btn = document.getElementById("demo-play");
+  if (!btn) return;
+  btn.addEventListener("click", function () {
+    var b = atob(document.getElementById("demo-b64").textContent.trim());
+    var bytes = new Uint8Array(b.length);
+    for (var i = 0; i < b.length; i++) bytes[i] = b.charCodeAt(i);
+    var f = document.createElement("iframe");
+    f.title = "Race replay: PyTorch against MegaRL on one H100";
+    f.setAttribute("allowfullscreen", "");
+    f.srcdoc = new TextDecoder().decode(bytes);
+    var d = document.getElementById("demo");
+    d.innerHTML = "";
+    d.appendChild(f);
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+ "names": [
+  "math",
+  "science",
+  "sciq",
+  "csqa"
+ ],
+ "ntasks": 4,
+ "n_per_task": 400
+}

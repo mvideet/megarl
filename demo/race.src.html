@@ -1,0 +1,311 @@
+<title>MegaRL vs PyTorch on one H100</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #080b11; --panel: #0f141d; --line: #232c3c; --ink: #e8edf6; --mute: #8d99ae; --dim: #55617a;
+  --mrl: #38bdf8; --pt: #fb923c; --stop: #f43f5e; --ok: #3ddc97;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--sans); margin: 0; overflow: hidden; }
+#wrap { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg); padding: 0 16px; }
+#stagebox { flex: 1 1 auto; min-height: 0; min-width: 0; position: relative; overflow: hidden; }
+#stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; background: var(--bg); }
+.lbl { font: 600 15px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute); white-space: nowrap; }
+
+#hdr { position: absolute; left: 60px; top: 36px; width: 1800px; height: 100px; }
+#hdr h1 { margin: 0; font: 600 46px var(--sans); letter-spacing: -0.01em; }
+#hdr .sub { margin-top: 8px; font: 400 20px var(--sans); color: var(--mute); }
+#clockbox { position: absolute; right: 0; top: 4px; text-align: right; }
+#clock { font: 600 40px var(--mono); margin-top: 4px; }
+
+.col { position: absolute; top: 168px; width: 880px; height: 470px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-sizing: border-box; padding: 26px 34px; }
+#ptc { left: 60px; border-top: 4px solid var(--pt); }
+#mrc { left: 980px; border-top: 4px solid var(--mrl); }
+.head { display: flex; align-items: baseline; gap: 16px; height: 46px; }
+.name { font: 600 38px var(--sans); white-space: nowrap; }
+#ptc .name { color: var(--pt); } #mrc .name { color: var(--mrl); }
+.how { font: 400 18px var(--sans); color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill { position: absolute; right: 30px; top: 30px; font: 600 15px var(--mono); padding: 8px 14px; border-radius: 8px; letter-spacing: 0.03em; white-space: nowrap; }
+.pill.go { color: var(--ok); background: rgba(61, 220, 151, 0.12); border: 1px solid rgba(61, 220, 151, 0.5); }
+.pill.stop { color: #ffffff; background: var(--stop); border: 1px solid var(--stop); }
+.big { margin-top: 26px; }
+.big .v { font: 600 132px/1 var(--mono); letter-spacing: -0.02em; margin-top: 8px; white-space: nowrap; }
+#ptc .big .v { color: var(--pt); } #mrc .big .v { color: var(--mrl); }
+.bar { margin-top: 26px; height: 26px; background: #1a2130; border-radius: 6px; overflow: hidden; }
+.bar .fill { height: 100%; width: 0; border-radius: 6px; }
+#ptc .fill { background: var(--pt); } #mrc .fill { background: var(--mrl); }
+.barlbl { margin-top: 8px; font: 400 17px var(--mono); color: var(--mute); white-space: nowrap; }
+.row { display: flex; gap: 60px; margin-top: 24px; }
+.row .v { font: 600 38px var(--mono); margin-top: 4px; white-space: nowrap; }
+
+#chartp { position: absolute; left: 60px; top: 664px; width: 1800px; height: 380px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+#chart { position: absolute; left: 0; top: 0; width: 1800px; height: 380px; }
+
+#endcard { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: rgba(6, 9, 14, 0.95); display: flex; align-items: center; justify-content: center; }
+#endcard .in { width: 1500px; }
+#endcard h2 { margin: 0 0 54px; font: 600 60px var(--sans); text-align: center; letter-spacing: -0.01em; }
+.lad { display: flex; align-items: center; height: 92px; }
+.lad .who { width: 430px; font: 500 24px var(--sans); color: var(--mute); }
+.lad .who b { display: block; font: 600 28px var(--sans); color: var(--ink); }
+.lad .track { flex: 1 1 auto; height: 50px; position: relative; }
+.lad .fill { position: absolute; left: 0; top: 0; height: 50px; border-radius: 8px; }
+.lad .num { position: absolute; top: 4px; font: 600 36px var(--mono); white-space: nowrap; }
+#endcard .ln { margin-top: 46px; text-align: center; font: 500 30px var(--sans); }
+#endcard .ln b { font: 600 32px var(--sans); color: var(--mrl); }
+#endcard .ln b.pt { color: var(--pt); }
+.lad .num i { display: block; font: 500 22px var(--sans); font-style: normal; color: var(--ink); margin-top: 2px; }
+#endcard .fn { margin: 36px auto 0; max-width: 1400px; text-align: center; font: 400 16px/1.5 var(--sans); color: var(--mute); }
+
+#controls { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 0; min-width: 0; }
+#controls button, #controls select { font: 500 13px var(--sans); color: var(--ink); background: #141a26; border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+#seek { flex: 1 1 160px; min-width: 0; accent-color: var(--mrl); }
+#tlabel { font: 400 12px var(--mono); color: var(--mute); min-width: 150px; }
+#err { position: fixed; left: 16px; top: 16px; right: 16px; background: #3b0d12; color: #ffd7d7; border: 1px solid #f87171; border-radius: 8px; padding: 10px 14px; font: 400 13px var(--mono); z-index: 9; white-space: pre-wrap; }
+</style>
+
+<div id="wrap">
+  <div id="stagebox">
+    <div id="stage">
+      <div id="hdr">
+        <h1>Same GPU. Same RL job.</h1>
+        <div class="sub" id="sub"></div>
+        <div id="clockbox"><div class="lbl">Training time</div><div id="clock">0.0 s</div></div>
+      </div>
+
+      <div class="col" id="ptc">
+        <div class="head"><div class="name">PyTorch</div><div class="how">HF transformers</div></div>
+        <div class="pill go" id="pt_pill">generating</div>
+        <div class="big"><div class="lbl">Tokens per second, average so far</div><div class="v" id="pt_tok">-</div></div>
+        <div class="bar"><div class="fill" id="pt_bar"></div></div>
+        <div class="barlbl" id="pt_cum">0 tokens</div>
+        <div class="row">
+          <div><div class="lbl">Kernel launches</div><div class="v" id="pt_l">0</div></div>
+          <div><div class="lbl">Model updates</div><div class="v" id="pt_u">0</div></div>
+        </div>
+      </div>
+
+      <div class="col" id="mrc">
+        <div class="head"><div class="name">MegaRL</div><div class="how">one persistent CUDA kernel</div></div>
+        <div class="pill go" id="mr_pill">generating + training</div>
+        <div class="big"><div class="lbl">Tokens per second, average so far</div><div class="v" id="mr_tok">-</div></div>
+        <div class="bar"><div class="fill" id="mr_bar"></div></div>
+        <div class="barlbl" id="mr_cum">0 tokens</div>
+        <div class="row">
+          <div><div class="lbl">Kernel launches</div><div class="v" id="mr_l">1</div></div>
+          <div><div class="lbl">Model updates</div><div class="v" id="mr_u">0</div></div>
+        </div>
+      </div>
+
+      <div id="chartp"><canvas id="chart" width="3600" height="760"></canvas></div>
+
+      <div id="endcard" hidden><div class="in" id="endin"></div></div>
+    </div>
+  </div>
+  <div id="controls">
+    <button id="bplay" type="button">Play</button>
+    <button id="brestart" type="button">Restart (R)</button>
+    <input id="seek" type="range" min="0" max="100" step="0.01" value="0" aria-label="Position in the replay">
+    <span id="tlabel"></span>
+    <select id="selspeed" aria-label="Playback speed">
+      <option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option>
+    </select>
+    <button id="bhide" type="button">Hide controls (H)</button>
+  </div>
+</div>
+<div id="err" hidden></div>
+
+/*BUNDLES*/
+
+<script>
+(function () {
+"use strict";
+
+var FM = '"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+var FS = '"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+var COL = { ink: "#e8edf6", mute: "#8d99ae", dim: "#55617a", line: "#232c3c", mrl: "#38bdf8", pt: "#fb923c" };
+var END_AT = 0.6, END_HOLD = 10;
+
+function $(id) { return document.getElementById(id); }
+function showErr(msg) { var e = $("err"); e.hidden = false; e.textContent = "Replay error: " + msg; }
+window.addEventListener("error", function (ev) { showErr(ev.message + (ev.lineno ? " (line " + ev.lineno + ")" : "")); });
+function b64bytes(s) { var bin = atob(s), n = bin.length, u = new Uint8Array(n); for (var i = 0; i < n; i++) u[i] = bin.charCodeAt(i); return u; }
+function arr(s, T) { var u = b64bytes(s); return new T(u.buffer, 0, Math.floor(u.byteLength / T.BYTES_PER_ELEMENT)); }
+function ub(a, x) { var lo = 0, hi = a.length; while (lo < hi) { var m = (lo + hi) >>> 1; if (a[m] <= x) lo = m + 1; else hi = m; } return lo; }
+function clamp(x, a, b) { return x < a ? a : (x > b ? b : x); }
+function fmtK(x) { return x >= 1e6 ? (x / 1e6).toFixed(2) + "M" : x >= 1000 ? (x / 1000).toFixed(1) + "k" : String(Math.round(x)); }
+function fmtInt(x) { return String(Math.round(x)).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+function pct(x) { return (x * 100).toFixed(1) + "%"; }
+function setText(el, s) { if (el.__t !== s) { el.__t = s; el.textContent = s; } }
+
+var D = JSON.parse(document.querySelectorAll("script.bundle")[0].textContent);
+var T_END = D.t_end;
+var MR = { tok: arr(D.mr.tok, Uint32Array), trn: arr(D.mr.trn_t, Uint32Array), pub: arr(D.mr.pub, Uint32Array), ev: D.mr.eval };
+var PT = { t: arr(D.pt.t, Uint32Array), tok: arr(D.pt.tok, Uint32Array), upd: arr(D.pt.upd, Uint16Array), lnch: arr(D.pt.lnch, Uint32Array),
+           s0: arr(D.pt.s0, Uint32Array), s1: arr(D.pt.s1, Uint32Array), ev: D.pt.eval };
+var TOK_MAX = MR.tok[MR.tok.length - 1];
+var P = { tau: 0, playing: false, speed: 1, last: 0, hidden: false };
+var TAU_END = T_END / 1e6;
+
+function mrTok(t) {
+  var x = t / D.grid_us, i = Math.floor(x);
+  if (i >= MR.tok.length - 1) return MR.tok[MR.tok.length - 1];
+  if (i < 0) return 0;
+  return MR.tok[i] + (MR.tok[i + 1] - MR.tok[i]) * (x - i);
+}
+function ptLin(a, t) {
+  var i = ub(PT.t, t) - 1, n = PT.t.length;
+  if (i < 0) return 0;
+  if (i >= n - 1) return a[n - 1];
+  var t0 = PT.t[i], t1 = PT.t[i + 1];
+  return t1 > t0 ? a[i] + (a[i + 1] - a[i]) * (t - t0) / (t1 - t0) : a[i];
+}
+function ptStep(a, t) { var i = ub(PT.t, t) - 1; return i < 0 ? 0 : a[i]; }
+function ptPaused(t) { var k = ub(PT.s0, t); return k > 0 && t < PT.s1[k - 1]; }
+
+var cx = $("chart").getContext("2d");
+function txt(c, s, x, y, font, col, align) { c.font = font; c.fillStyle = col; c.textAlign = align || "left"; c.fillText(s, x, y); c.textAlign = "left"; }
+function line(c, pts, t, px, py, col, dash) {
+  var last = -1, i;
+  for (i = 0; i < pts.length; i++) if (pts[i].t <= t) last = i;
+  if (last < 0) return -1;
+  c.strokeStyle = col; c.fillStyle = col; c.lineWidth = 4; c.setLineDash(dash ? [12, 8] : []);
+  c.beginPath();
+  for (i = 0; i <= last; i++) { if (i === 0) c.moveTo(px(pts[i].t), py(pts[i].macro)); else c.lineTo(px(pts[i].t), py(pts[i].macro)); }
+  c.stroke(); c.setLineDash([]);
+  for (i = 0; i <= last; i++) { c.beginPath(); c.arc(px(pts[i].t), py(pts[i].macro), 5.5, 0, 6.2832); c.fill(); }
+  return last;
+}
+function drawChart(t) {
+  var c = cx, i, y, v;
+  c.setTransform(2, 0, 0, 2, 0, 0); c.lineCap = "round"; c.lineJoin = "round"; c.clearRect(0, 0, 1800, 380);
+  var x0 = 100, x1 = 1590, y0 = 70, y1 = 316, lo = 0.55, hi = 0.80;
+  function px(tt) { return x0 + (x1 - x0) * tt / T_END; }
+  function py(val) { return y1 - (y1 - y0) * (clamp(val, lo, hi) - lo) / (hi - lo); }
+  txt(c, "Held-out accuracy, 4 tasks", 34, 42, "600 22px " + FS, COL.ink);
+  txt(c, "1,600 prompts neither run trained on", 340, 42, "400 17px " + FS, COL.mute);
+  c.lineWidth = 1;
+  for (i = 0; i <= 5; i++) {
+    v = lo + i * 0.05; y = py(v);
+    c.strokeStyle = COL.line; c.beginPath(); c.moveTo(x0, y); c.lineTo(x1, y); c.stroke();
+    txt(c, (v * 100).toFixed(0) + "%", x0 - 14, y + 6, "400 16px " + FM, COL.dim, "right");
+  }
+  for (i = 0; i * 1e6 <= T_END; i += 5) txt(c, i + " s", px(i * 1e6), y1 + 32, "400 16px " + FM, COL.dim, "center");
+  var lp = line(c, PT.ev, t, px, py, COL.pt, true);
+  var lm = line(c, MR.ev, t, px, py, COL.mrl, false);
+  var labs = [];
+  if (lm >= 0) labs.push({ x: px(MR.ev[lm].t), y: py(MR.ev[lm].macro), s: "MegaRL " + pct(MR.ev[lm].macro), col: COL.mrl });
+  if (lp >= 0) labs.push({ x: px(PT.ev[lp].t), y: py(PT.ev[lp].macro), s: "PyTorch " + pct(PT.ev[lp].macro), col: COL.pt });
+  if (labs.length === 2 && Math.abs(labs[0].y - labs[1].y) < 30) {
+    var up = labs[0].y <= labs[1].y ? 0 : 1; labs[up].y = labs[1 - up].y - 30;
+  }
+  if (labs.length === 2) labs[1].x = labs[0].x = Math.max(labs[0].x, labs[1].x);
+  for (i = 0; i < labs.length; i++) {
+    var L = labs[i];
+    txt(c, L.s, L.x + 16, clamp(L.y + 7, y0 + 10, y1 - 6), "600 20px " + FM, L.col);
+  }
+}
+
+function render() {
+  var tau = P.tau, t = clamp(tau * 1e6, 0, T_END);
+  setText($("clock"), (t / 1e6).toFixed(1) + " s");
+  // PyTorch
+  var paused = ptPaused(t), pp = $("pt_pill"), ptEnd = D.pt.wall_s * 1e6;
+  setText(pp, t >= ptEnd ? "finished" : paused ? "backprop: rollouts stopped" : "generating");
+  pp.className = t >= ptEnd ? "pill go" : paused ? "pill stop" : "pill go";
+  var pc = ptLin(PT.tok, t), ts = Math.min(t, ptEnd) / 1e6;
+  setText($("pt_tok"), t > 400000 ? fmtK(pc / ts) : "-");
+  $("pt_bar").style.width = (100 * pc / TOK_MAX).toFixed(2) + "%";
+  setText($("pt_cum"), fmtInt(pc) + " tokens");
+  setText($("pt_l"), fmtInt(ptLin(PT.lnch, t)));
+  setText($("pt_u"), String(ptStep(PT.upd, t)));
+  // MegaRL
+  var mrEnd = D.mr.kernel_s * 1e6, mp = $("mr_pill"), mc = mrTok(t), tm = Math.min(t, mrEnd) / 1e6;
+  setText(mp, t >= mrEnd ? "finished: " + D.mr.updates + " updates" : "generating + training");
+  setText($("mr_tok"), t > 400000 ? fmtK(mc / tm) : "-");
+  $("mr_bar").style.width = (100 * mc / TOK_MAX).toFixed(2) + "%";
+  setText($("mr_cum"), fmtInt(mc) + " tokens");
+  setText($("mr_l"), "1");
+  setText($("mr_u"), String(ub(MR.pub, t)));
+  drawChart(t);
+  var ec = $("endcard"), a = clamp((tau - TAU_END - END_AT) / 0.7, 0, 1);
+  if (a > 0) { if (ec.hidden) ec.hidden = false; ec.style.opacity = String(a); } else if (!ec.hidden) ec.hidden = true;
+  var sk = $("seek"); if (document.activeElement !== sk || P.playing) sk.value = String(tau.toFixed(2));
+  setText($("tlabel"), "training " + (t / 1e6).toFixed(2) + " s of " + (T_END / 1e6).toFixed(2));
+}
+
+function el(tag, cls, kids) {
+  var e = document.createElement(tag); if (cls) e.className = cls;
+  for (var i = 0; i < kids.length; i++) e.appendChild(typeof kids[i] === "string" ? document.createTextNode(kids[i]) : kids[i]);
+  return e;
+}
+function bold(s) { var b = document.createElement("b"); b.textContent = s; return b; }
+function firstAt(pts, thr) { for (var i = 0; i < pts.length; i++) if (pts[i].macro >= thr) return pts[i].t; return -1; }
+function buildEndCard() {
+  var root = $("endin"), m = D.mr, p = D.pt, q = D.tuned, top = m.tokens_per_s;
+  root.textContent = "";
+  root.appendChild(el("h2", "", ["One H100. One kernel launch."]));
+  function rung(who, how, v, col, note) {
+    var w = (100 * v / top * 0.62).toFixed(2) + "%";
+    var fill = el("div", "fill", []); fill.style.width = w; fill.style.background = col;
+    var num = el("div", "num", note ? [fmtK(v) + " tok/s", el("i", "", [note])] : [fmtK(v) + " tok/s"]); num.style.left = "calc(" + w + " + 18px)"; num.style.color = col;
+    return el("div", "lad", [el("div", "who", [bold(who), how]), el("div", "track", [fill, num])]);
+  }
+  root.appendChild(rung("PyTorch", "HF transformers", p.tokens_per_s, COL.pt, ""));
+  root.appendChild(rung("PyTorch, hand-tuned", "CUDA graphs, static KV cache", q.tokens_per_s, "#c2773a", ""));
+  root.appendChild(rung("MegaRL", "one persistent kernel", top, COL.mrl,
+    (top / p.tokens_per_s).toFixed(0) + "x HF PyTorch, " + (top / q.tokens_per_s).toFixed(1) + "x hand-tuned"));
+  var THR = 0.70, tm = firstAt(m.eval, THR), tp = firstAt(p.eval, THR);
+  if (tm >= 0 && tp >= 0) {
+    var bp = bold((tp / 1e6).toFixed(1) + " s"); bp.className = "pt";
+    root.appendChild(el("div", "ln", ["70% held-out accuracy after ", bold((tm / 1e6).toFixed(1) + " s"), " (PyTorch: ", bp, ")"]));
+  }
+  root.appendChild(el("div", "fn", [D.meta.model + ", layer " + D.meta.layer + " trained (" + D.meta.params_m.toFixed(1) + "M parameters), GRPO, 512 answers in flight, four tasks at once, " + D.meta.device + ". " +
+    "Same prompts, same training step, same held-out scoring for every run; set-up time excluded. MegaRL also trains " + (m.trained_per_s / p.trained_per_s).toFixed(1) + "x more groups per second (" +
+    Math.round(m.trained_per_s) + " vs " + Math.round(p.trained_per_s) + ") with " + m.violations + " protocol violations; PyTorch made " + fmtInt(p.kernel_launches) + " kernel launches."]));
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  var dt = Math.min(0.1, Math.max(0, (now - P.last) / 1000)); P.last = now;
+  if (P.playing) {
+    P.tau += dt * P.speed;
+    if (P.tau >= TAU_END + END_HOLD) { P.tau = TAU_END + END_HOLD; P.playing = false; setText($("bplay"), "Play"); }
+  }
+  render();
+}
+function fit() {
+  var bx = $("stagebox"), w = bx.clientWidth, h = bx.clientHeight, s = Math.min(w / 1920, h / 1080);
+  if (!(s > 0)) s = 0.1;
+  $("stage").style.transform = "translate(" + ((w - 1920 * s) / 2).toFixed(1) + "px," + ((h - 1080 * s) / 2).toFixed(1) + "px) scale(" + s.toFixed(5) + ")";
+}
+function setPlaying(on) { if (on && P.tau >= TAU_END + END_HOLD - 0.01) P.tau = 0; P.playing = on; setText($("bplay"), on ? "Pause" : "Play"); }
+function seekTo(tau) { P.tau = clamp(tau, 0, TAU_END + END_HOLD); }
+function setHidden(h) { P.hidden = h; $("controls").hidden = h; fit(); }
+
+setText($("sub"), D.meta.model + " learns math, science, SciQ and CommonsenseQA with GRPO on one " + D.meta.device.replace("NVIDIA ", "") + ".");
+buildEndCard();
+$("seek").max = String((TAU_END + END_HOLD).toFixed(2));
+$("bplay").addEventListener("click", function () { setPlaying(!P.playing); });
+$("brestart").addEventListener("click", function () { seekTo(0); setPlaying(true); });
+$("seek").addEventListener("input", function () { seekTo(Number($("seek").value)); });
+$("selspeed").addEventListener("change", function () { P.speed = Number($("selspeed").value) || 1; });
+$("bhide").addEventListener("click", function () { setHidden(true); });
+$("stagebox").addEventListener("click", function () { if (P.hidden) setPlaying(!P.playing); });
+document.addEventListener("keydown", function (ev) {
+  var k = ev.key;
+  if (ev.target && (ev.target.tagName === "SELECT" || ev.target.tagName === "INPUT") && k !== "h" && k !== "H") return;
+  if (k === " ") { ev.preventDefault(); setPlaying(!P.playing); }
+  else if (k === "h" || k === "H") setHidden(!P.hidden);
+  else if (k === "r" || k === "R") { seekTo(0); setPlaying(true); }
+});
+window.addEventListener("resize", fit);
+if (window.ResizeObserver) new window.ResizeObserver(fit).observe($("stagebox"));
+fit();
+P.last = performance.now();
+requestAnimationFrame(frame);
+setTimeout(function () { if (P.tau === 0 && !P.playing) setPlaying(true); }, 1400);
+})();
+</script>

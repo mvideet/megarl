@@ -1,0 +1,12 @@
+{
+ "n_prompts": 3584,
+ "max_len": 120,
+ "verifier_mode": 0,
+ "tasks": [
+  "math",
+  "science",
+  "sciq",
+  "csqa"
+ ],
+ "sha256": "b0c73cc8387519c3af438c358317437251861f05cf13e90a4628a0a5b0d4e577"
+}
